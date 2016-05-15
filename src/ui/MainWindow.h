@@ -190,6 +190,8 @@ private slots:
     void _showQmlTestWidget(void);
 #endif
 
+    void on_actionScenario_Generator_triggered();
+
 private:
     /// Constructor is private since all creation should be through MainWindow::_create
     MainWindow();

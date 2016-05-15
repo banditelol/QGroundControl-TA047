@@ -77,6 +77,7 @@
     <property name="title">
      <string>Widgets</string>
     </property>
+    <addaction name="actionScenario_Generator"/>
    </widget>
    <addaction name="menuMGround"/>
    <addaction name="menuWidgets"/>
@@ -144,6 +145,11 @@
    </property>
    <property name="text">
     <string>Show Status Bar</string>
+   </property>
+  </action>
+  <action name="actionScenario_Generator">
+   <property name="text">
+    <string>Scenario Generator</string>
    </property>
   </action>
  </widget>

@@ -38,6 +38,13 @@ This file is part of the QGROUNDCONTROL project
 #include <QDesktopServices>
 #include <QDockWidget>
 #include <QMenuBar>
+#include <QFile>
+#include <QString>
+#include <QStringList>
+#include <QTextStream>
+#include <QDir>
+
+#include <cmath>
 
 #include "QGC.h"
 #include "MAVLinkProtocol.h"
@@ -53,6 +60,7 @@ This file is part of the QGROUNDCONTROL project
 #include "LogCompressor.h"
 #include "UAS.h"
 #include "QGCImageProvider.h"
+#include "scenariodialog.h"
 
 #ifndef __mobile__
 #include "SettingsDialog.h"
@@ -76,6 +84,16 @@ This file is part of the QGROUNDCONTROL project
 #ifdef UNITTEST_BUILD
 #include "QmlControls/QmlTestWidget.h"
 #endif
+
+// Defingin PI value
+#define PI 3.14159265359
+
+// 0 = old format, 1 = new format
+#define QGCMissionFormat 0
+
+#define CMD_WAY 16
+#define CMD_TAKE_OFF 22
+#define CMD_LOITER 12
 
 /// The key under which the Main Window settings are saved
 const char* MAIN_SETTINGS_GROUP = "QGC_MAINWINDOW";
@@ -128,6 +146,7 @@ void MainWindow::deleteInstance(void)
 {
     delete this;
 }
+
 
 /// @brief Private constructor for MainWindow. MainWindow singleton is only ever created
 ///         by MainWindow::_create method. Hence no other code should have access to
@@ -600,3 +619,271 @@ QObject* MainWindow::rootQmlObject(void)
 {
     return _mainQmlWidgetHolder->getRootObject();
 }
+
+// Function to create the initiation part of the mission file, can be made into method for mission class (TBA)
+// missionFile -> file that contains mission file, need to be opened before called
+// home_lat -> latitude of home in degree
+// home_long -> longitude of home in degree
+// home_alt -> altitude of home in degree
+char initMission(QFile *missionFile, float home_lat, float home_long, int home_alt)
+{
+    QTextStream out(missionFile);
+    out.setRealNumberPrecision(12);
+    //init mission
+    //-----------------------------------------------------------------------------
+    out << "{\n";
+    out << "    \"MAV_AUTOPILOT\": 3,\n";
+    out << "    \"complexItems\": [\n";
+    out << "     ],\n";
+    out << "    \"groundStation\": \"QGroundControl\",\n";
+    out << "    \"items\": [\n";
+    out << "        {\n";
+    out << "            \"autoContinue\": true,\n";
+    out << "            \"command\": 22,\n";
+    out << "            \"coordinate\": [\n";
+    out << "                " << home_lat << ",\n";
+    out << "                " << home_long << ",\n";
+    out << "                " << home_alt <<"\n";
+    out << "            ],\n";
+    out << "            \"frame\": 2,\n";
+    out << "            \"id\": 1,\n";
+    out << "            \"param1\": 15,\n";
+    out << "            \"param2\": 0,\n";
+    out << "            \"param3\": 0,\n";
+    out << "            \"param4\": 0,\n";
+    out << "            \"type\": \"missionItem\"\n";
+    out << "        }";
+    return 0;
+}
+
+char addMission(QFile *missionFile, u_int8_t command, u_int8_t frame, int mission_id, float way_lat, float way_long, double way_alt, int param1, int param2, int param3, int param4 )
+{
+    QTextStream out(missionFile);
+    out.setRealNumberPrecision(12);
+    out << ",\n";
+    out << "        {\n";
+    out << "            \"autoContinue\": true,\n";
+    out << "            \"command\": " << command << ",\n";
+    out << "            \"coordinate\": [\n";
+    out << "                " << way_lat << ",\n";
+    out << "                " << way_long << ",\n";
+    out << "                " << way_alt << "\n";
+    out << "            ],\n";
+    out << "            \"frame\": " << frame << ",\n";
+    out << "            \"id\": " << mission_id << ",\n";
+    out << "            \"param1\": " << param1 << ",\n";
+    out << "            \"param2\": " << param2 << ",\n";
+    out << "            \"param3\": " << param3 << ",\n";
+    out << "            \"param4\": " << param4 << ",\n";
+    out << "            \"type\": \"missionItem\"\n";
+    out << "        }";
+    return 0;
+}
+
+char endMission(QFile *missionFile, float home_lat, float home_long, int home_alt)
+{
+    QTextStream out(missionFile);
+    out.setRealNumberPrecision(12);
+    out << "\n    ],\n";
+    out << "    \"plannedHomePosition\": {\n";
+    out << "            \"autoContinue\": true,\n";
+    out << "            \"command\": 16,\n";
+    out << "            \"coordinate\": [\n";
+    out << "                " << home_lat << ",\n";
+    out << "                " << home_long << ",\n";
+    out << "                " << home_alt << "\n";
+    out << "            ],\n";
+    out << "            \"frame\": 0,\n";
+    out << "            \"id\": 0,\n";
+    out << "            \"param1\": 0,\n";
+    out << "            \"param2\": 0,\n";
+    out << "            \"param3\": 0,\n";
+    out << "            \"param4\": 0,\n";
+    out << "            \"type\": \"missionItem\"\n";
+    out << "        },\n";
+    out << "        \"version\": \"1.0\"\n";
+    out << "}";
+    return 0;
+}
+
+void spiralMission(QFile *missionFile, double home_lat, double home_long, double home_alt, double spiral_theta, double spiral_radius, int spiral_cirnum, int spiral_iteration)
+{
+    double xOri, yOri, xTemp, yTemp, xMission, yMission;
+    int i;
+    xOri = spiral_radius*cos(spiral_theta*180/PI);
+    yOri = spiral_radius*sin(spiral_theta*180/PI);
+    for(i = 1; i < spiral_iteration; i++)
+    {
+        spiral_theta = i*spiral_cirnum*360.0/spiral_iteration;
+        qDebug() << spiral_theta;
+        xTemp = spiral_radius*((float)spiral_iteration-i)/(float)spiral_iteration*cos(spiral_theta*PI/180) - xOri;
+        yTemp = spiral_radius*((float)spiral_iteration-i)/(float)spiral_iteration*sin(spiral_theta*PI/180) - yOri;
+        qDebug() << "x : " << xTemp << "   y : " << yTemp;
+        qDebug() << spiral_radius*(spiral_iteration-i)/spiral_iteration << "cos : " << cos(spiral_theta*PI/180) << "theta : " << spiral_theta;
+        xMission = home_long + xTemp;
+        //qDebug() << xMission;
+        yMission = home_lat + yTemp;
+        //qDebug() << yMission;
+        addMission(missionFile, CMD_WAY, 3, i, yMission, xMission, 20, 5, 6, 0, 0);
+        //addMission(&missionFile,CMD_WAY, 3, i, yMission, xMission, home_alt, 0, 0, 0, 0);
+    }
+    addMission(missionFile, CMD_WAY, 3, i, home_lat, home_long, 20, 5, 6, 0, 0);
+}
+
+void zigMission(QFile *missionFile, double home_lat, double home_long, double home_alt, double zig_width, double zig_height, int zig_sqrnum)
+{
+    double xOri, yOri, xMission, yMission;
+    int i,j;
+    xOri = home_long;
+    yOri = home_lat;
+    j = 1;
+    for(i = 0; i < zig_sqrnum*2; i++)
+    {
+        if(i!=0)
+        {
+            xMission = xOri;
+            yMission = yOri + i*zig_height/(zig_sqrnum*2-1);
+            addMission(missionFile, CMD_WAY, 3, j++, yMission, xMission, 20, 5, 6, 0, 0);
+
+        }
+        xMission = xOri + zig_width;
+        yMission = yOri + i*zig_height/(zig_sqrnum*2-1);
+        addMission(missionFile, CMD_WAY, 3, j++, yMission, xMission, 20, 5, 6, 0, 0);
+
+        xMission = xOri + zig_width;
+        yMission = yOri + (++i)*zig_height/(zig_sqrnum*2-1);
+        addMission(missionFile, CMD_WAY, 3, j++, yMission, xMission, 20, 5, 6, 0, 0);
+
+        xMission = xOri;
+        yMission = yOri + (i)*zig_height/(zig_sqrnum*2-1);
+        addMission(missionFile, CMD_WAY, 3, j++, yMission, xMission, 20, 5, 6, 0, 0);
+    }
+    addMission(missionFile, CMD_WAY, 3, j, home_lat, home_long, 20, 5, 6, 0, 0);
+}
+
+void MainWindow::on_actionScenario_Generator_triggered()
+{
+    bool overwrite = 1;
+
+        double home_lat, home_long;
+        double home_alt, height = 25;
+
+        QString name;
+        QString filename;
+        QString dirname = "flight";
+        QDir currentdir(QDir::homePath());
+
+
+        double spiral_theta, spiral_radius, spiral_cirnum;
+        int spiral_iteration;
+
+        double zig_width, zig_height, zig_sqrnum;
+
+        // y -> latitude
+        // x -> longitude
+
+        ScenarioDialog scnDialog;
+        scnDialog.setModal(true);
+        if(scnDialog.exec() == QDialog::Accepted)
+            qDebug() << "accepted";
+        else
+            qDebug() << "rejected";
+        overwrite = scnDialog.overwrite;
+        name = scnDialog.name;
+        dirname = scnDialog.dirpath;
+        qDebug() << dirname;
+        if(!currentdir.setCurrent(dirname));
+        {
+            currentdir.mkdir(dirname);
+            qDebug() << currentdir.cd(dirname);
+        }
+        //Result from dialog
+        //-------------------------------------
+        home_lat = scnDialog.home_lat;
+        home_long = scnDialog.home_long;
+        home_alt = scnDialog.home_alt;
+
+        spiral_theta = 0;
+        spiral_radius = scnDialog.spiral_radius/100.0*0.0009059; //100 meters on Indonesia
+        spiral_cirnum = scnDialog.spiral_cirnum;
+        spiral_iteration = scnDialog.spiral_iteration;
+
+        zig_width = scnDialog.zig_width/100*0.0009059;
+        zig_height = scnDialog.zig_height/100*0.0009059;
+        zig_sqrnum = scnDialog.zig_sqrnum;
+        //-------------------------------------
+        qDebug() << "home pos :" << home_alt << " " << home_lat << " " << home_long;
+        qDebug() << "spiral param :" << spiral_cirnum<< " " << spiral_radius<< " " << spiral_iteration;
+        qDebug() << "square param :" << zig_width << " " << zig_height<< " " << zig_sqrnum;
+        QTextStream(&filename) << name << ".mission";
+        qDebug() << filename;
+        QFile missionFile(filename);
+        if(missionFile.open(QFile::ReadOnly | QFile::Text))
+        {
+            QTextStream in(&missionFile);
+            QString line = in.readLine();
+            qDebug() << "File already exist";
+            qDebug() << "file content : " << line;
+
+            missionFile.close();
+
+            if(overwrite)
+            {
+                qDebug() << QDir::setCurrent(currentdir.absolutePath());
+                qDebug() << QDir::currentPath();
+                qDebug() << "overwriting..";
+                missionFile.open(QFile::WriteOnly | QFile::Text);
+                QTextStream out(&missionFile);
+                //init mission
+                //-----------------------------------------------------------------------------
+                initMission(&missionFile,home_lat,home_long,home_alt);
+                //-----------------------------------------------------------------------------
+            }
+            else
+            {
+                //new duplicate file (Still Buggy)
+                int i = 1;
+                QString newFileName;
+                qDebug() << "creating duplicates";
+                do
+                {
+                    QTextStream(&newFileName) << name << "_" << i++ << ".mission";
+                    missionFile.setFileName(newFileName);
+                    QTextStream(&newFileName).reset();
+                    QTextStream(&newFileName).flush();
+                    newFileName = "";
+                }while(missionFile.open(QFile::ReadOnly | QFile::Text));
+                missionFile.open(QFile::WriteOnly | QFile::Text);
+                QTextStream out(&missionFile);
+                //init mission
+                //-----------------------------------------------------------------------------
+                initMission(&missionFile,home_lat,home_long,home_alt);
+                //-----------------------------------------------------------------------------
+
+            }
+        }
+        else
+        {
+            qDebug() << QDir::setCurrent(currentdir.absolutePath());
+            qDebug() << QDir::currentPath();
+            qDebug() << "creating new file..";
+            qDebug() << missionFile.open(QFile::WriteOnly | QFile::Text);
+            QTextStream out(&missionFile);
+            //init mission
+            //-----------------------------------------------------------------------------
+           initMission(&missionFile,home_lat,home_long,home_alt);
+            //-----------------------------------------------------------------------------
+        }
+        if(scnDialog.scenario_type)
+        {
+            zigMission(&missionFile, home_lat, home_long, home_alt,zig_width, zig_height,zig_sqrnum);
+        }
+        else
+        {
+            spiralMission(&missionFile, home_lat, home_long, home_alt, spiral_theta, spiral_radius, spiral_cirnum, spiral_iteration);
+        }
+        endMission(&missionFile, home_lat, home_long, home_alt);
+
+        missionFile.close();
+}
+

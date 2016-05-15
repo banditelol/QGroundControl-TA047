@@ -312,7 +312,10 @@ HEADERS += \
     src/QmlControls/QGCImageProvider.h \
     src/AutoPilotPlugins/APM/APMRemoteParamsDownloader.h \
     src/QtLocationPlugin/QMLControl/QGCMapEngineManager.h \
-    src/PositionManager/PositionManager.h
+    src/PositionManager/PositionManager.h \
+    scenariodialog.h \
+    visudp.h \
+    sensor3dvisualizer.h
 
 DebugBuild {
 HEADERS += \
@@ -466,7 +469,10 @@ SOURCES += \
     src/AutoPilotPlugins/APM/APMRemoteParamsDownloader.cc \
     src/QtLocationPlugin/QMLControl/QGCMapEngineManager.cc \
     src/PositionManager/SimulatedPosition.cc \
-    src/PositionManager/PositionManager.cpp
+    src/PositionManager/PositionManager.cpp \
+    scenariodialog.cpp \
+    visudp.cpp \
+    sensor3dvisualizer.cpp
 
 DebugBuild {
 SOURCES += \
